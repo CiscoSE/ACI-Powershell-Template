@@ -13,4 +13,5 @@ All API calls to the APIC are completed in the getData function. Differences in 
 This example is intended as a framework and doesn't produce much output from the APIC. If you want to see the calls made to the APIC and the resulting token, use the -verbose switch. This will show post data, including the user password passed when requesting the cookie. 
 
 **aci-list-interface-stats.ps1**
+
 Intended as the simplest example of requesting data and returning it to the screen, this example lists all of the switches in the fabric. 
