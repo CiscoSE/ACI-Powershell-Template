@@ -64,6 +64,7 @@ param(
     [parameter(mandatory=$false)][string]$user='admin',   #If nothing is entered, admin is assumed
     [parameter(mandatory=$true)] [string]$password = (Read-Host -Prompt "Enter Password for $user" -MaskInput),
     [parameter(mandatory=$false)][string]$domain='',
+    [parameter(mandatory=$false)][string]$csvErrorReportPath = ".\report.csv",
     [parameter(mandatory=$false)][switch]$failsafe
 )
 # We change this at the top to make it obvious what is happening. We cannot pass a secure string to the script from an 
@@ -72,6 +73,8 @@ param(
 
 # We use this to authenticate once a cookie is obtained. By making it global we can use it anywhere. 
 $global:cookie = ''
+
+$global:errorReport = @()
 
 function main {
     Param()
@@ -83,12 +86,13 @@ function main {
     }
     # Call function to return a list of 
     getAllLeafSwitches
+    if ($global:errorReport -ne '') {$global:errorReport | ConvertTo-Csv -Delimiter "`t" | out-file $csvErrorReportPath}
 }
 
 function getAllLeafSwitches{
     param()
     [xml]$listOfSwitches = getData -urlPath '/api/node/class/fabricNode.xml' -type Get
-    $listOfSwitches.imdata.fabricNode | %{
+    $listOfSwitches.imdata.fabricNode | Where-Object{$_.role -match "leaf|spine"} | sort-object dn | ForEach-Object{
         getInterfaces -currentSwitch $_
     }
 }
@@ -97,24 +101,70 @@ function getInterfaces{
     param(
         $currentSwitch
     )
+    $listOfInterfaces = New-Object 'System.Collections.Generic.List[PSObject]'
     [xml]$interfaceList = (getData -urlPath "/api/node/mo/$($currentSwitch.dn)/sys.xml?query-target=children" -type Get).Content
-    $interfaceList.imdata.l1PhysIf | ForEach-Object {
-        getInterfaceStats -currentInterfaceXML $_
+    $interfaceList.imdata.l1PhysIf.dn | ForEach-Object {
+        $thisInterface = $_  | Select-Object `
+            @{name="Switch";Expression={[int](($_ -split("/sys/"))[0] -split('node-'))[1]}},    
+            @{Name="Module";Expression={[int]((($_ -split('\['))[1] -replace('\]|\}','') -split('/'))[0] -replace('\D','')) }},
+            @{Name="Port";Expression={[int](($_ -split('\['))[1] -replace('\]|\}','') -split('/'))[1] }},
+            @{Name="DN";Expression={$_}}
+        $listOfInterfaces += $thisInterface
     }
+    $listOfInterfaces | sort-object "Switch",Module,Port | ForEach-Object{
+        getInterfaceStats -currentInterfaceObj $_
+    }
+        
 }
 
 function getInterfaceStats {
     param(
-        $currentInterfaceXML
+        $currentInterfaceObj
     )
-    $CurrentInterface = $currentInterfaceXML | %{ $_ |
-        select `
-            @{Name="Module";Expression={((($_.dn -split('\['))[1] -replace('\]|\}','') -split('/'))[0] -replace('\D','')) }},
-            @{Name="Port";Expression={(($_.dn -split('\['))[1] -replace('\]|\}','') -split('/'))[1] }},
-            dn |
-                Sort-Object module,port
-        }
-    $CurrentInterface 
+    write-verbose "Getting all stats from Interface $($currentInterfaceObj.dn)"
+    $interfaceRequest= "/api/node/mo/$($_.dn).xml?query-target=children"
+    write-verbose "`t$($interfaceRequest)"
+    [xml]$interfaceStats = (getData -urlPath "$($interfaceRequest)" -type Get ).content
+    $global:errorReport += ($interfaceStats.imdata.rmonDot3Stats | select-object `
+        alignmentErrors,
+        carrierSenseErrors,
+        childAction,
+        clearTs,
+        controlInUnknownOpcodes,
+        deferredTransmissions,
+        excessiveCollisions,
+        fCSErrors,
+        frameTooLongs,
+        inLlfcFrames,
+        inPauseFrames,
+        inPri0PauseFrames,
+        inPri1PauseFrames,
+        inPri2PauseFrames,
+        inPri3PauseFrames,
+        inPri4PauseFrames,
+        inPri5PauseFrames,
+        inPri6PauseFrames,
+        inPri7PauseFrames,
+        inStandardPauseFrames,
+        internalMacReceiveErrors,
+        internalMacTransmitErrors,
+        lateCollisions,
+        modTs,
+        multipleCollisionFrames,
+        outLlfcFrames,
+        outPauseFrames,
+        outPri0PauseFrames,
+        outPri1PauseFrames,
+        outPri2PauseFrames,
+        outPri3PauseFrames,
+        outPri4PauseFrames,
+        outPri5PauseFrames,
+        outPri6PauseFrames,
+        outPri7PauseFrames,
+        singleCollisionFrames,
+        sQETTestErrors,
+        status,
+        symbolErrors)
 }
 
 function getCookie{
