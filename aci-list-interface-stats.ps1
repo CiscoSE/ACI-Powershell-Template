@@ -62,10 +62,14 @@ The password in this case is requested seperately and is not passed as an argume
 param(
     [parameter(mandatory=$true)] [string]$apic,
     [parameter(mandatory=$false)][string]$user='admin',   #If nothing is entered, admin is assumed
-    [parameter(mandatory=$true)] [string]$password = (Read-Host -Prompt "Enter Password for $user" -MaskInput),
+    [parameter(mandatory=$false)] [string]$password = (Read-Host -Prompt "Enter Password for $user" -MaskInput:$true),
     [parameter(mandatory=$false)][string]$domain='',
-    [parameter(mandatory=$false)][string]$csvErrorReportPath = ".\report.csv",
-    [parameter(mandatory=$false)][switch]$failsafe
+    [parameter(mandatory=$false)][string]$reportDirectory="Reports/",
+    [parameter(mandatory=$false)][string]$tsvErrorReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-error-report.tsv",
+    [parameter(mandatory=$false)][string]$tsvInterfaceReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-interface-report.tsv",
+    [parameter(mandatory=$false)][switch]$failsafe,
+    [parameter(mandatory=$false)][switch]$errorReport,
+    [parameter(mandatory=$false)][switch]$interfaceReport
 )
 # We change this at the top to make it obvious what is happening. We cannot pass a secure string to the script from an 
 # argument, so we immidiately convert a string to a secure string to improve protection of the password during run time.
@@ -74,10 +78,13 @@ param(
 # We use this to authenticate once a cookie is obtained. By making it global we can use it anywhere. 
 $global:cookie = ''
 
-$global:errorReport = @()
+$global:errorReportOutput = @()
+$global:interfaceReportOutput = @()
 
 function main {
     Param()
+    # Make sure the report directory exists and create it if it doesn't
+    reportDirectoryCheck
     #Request and validate that we have a cookie
     getCookie
     if ($Global:cookie -eq ''){
@@ -86,7 +93,24 @@ function main {
     }
     # Call function to return a list of 
     getAllLeafSwitches
-    if ($global:errorReport -ne '') {$global:errorReport | ConvertTo-Csv -Delimiter "`t" | out-file $csvErrorReportPath}
+    if ($global:errorReportOutput -ne '') {$global:errorReportOutput |     ConvertTo-Csv -Delimiter "`t" | out-file $tsvErrorReportPath -force}
+    if ($global:interfaceReportOutput -ne '') {$global:interfaceReportOutput | ConvertTo-Csv -Delimiter "`t" | Out-File $tsvInterfaceReportPath -force}
+}
+
+function reportDirectoryCheck {
+    param()
+    $error.clear()
+    if (test-path -Path $reportDirectory){
+        write-verbose "Report Directory already exists."
+    }
+    else{
+        write-verbose "Report Directory Does not exist. Creating directory"
+        new-item -path $reportDirectory -ItemType Directory
+        if ($error[0]){
+            write-host "Failed to create diretory for reports. Script will exit"
+            exit
+        }
+    }
 }
 
 function getAllLeafSwitches{
@@ -101,6 +125,7 @@ function getInterfaces{
     param(
         $currentSwitch
     )
+
     $listOfInterfaces = New-Object 'System.Collections.Generic.List[PSObject]'
     [xml]$interfaceList = (getData -urlPath "/api/node/mo/$($currentSwitch.dn)/sys.xml?query-target=children" -type Get).Content
     $interfaceList.imdata.l1PhysIf.dn | ForEach-Object {
@@ -125,46 +150,52 @@ function getInterfaceStats {
     $interfaceRequest= "/api/node/mo/$($_.dn).xml?query-target=children"
     write-verbose "`t$($interfaceRequest)"
     [xml]$interfaceStats = (getData -urlPath "$($interfaceRequest)" -type Get ).content
-    $global:errorReport += ($interfaceStats.imdata.rmonDot3Stats | select-object `
-        alignmentErrors,
-        carrierSenseErrors,
-        childAction,
-        clearTs,
-        controlInUnknownOpcodes,
-        deferredTransmissions,
-        excessiveCollisions,
-        fCSErrors,
-        frameTooLongs,
-        inLlfcFrames,
-        inPauseFrames,
-        inPri0PauseFrames,
-        inPri1PauseFrames,
-        inPri2PauseFrames,
-        inPri3PauseFrames,
-        inPri4PauseFrames,
-        inPri5PauseFrames,
-        inPri6PauseFrames,
-        inPri7PauseFrames,
-        inStandardPauseFrames,
-        internalMacReceiveErrors,
-        internalMacTransmitErrors,
-        lateCollisions,
-        modTs,
-        multipleCollisionFrames,
-        outLlfcFrames,
-        outPauseFrames,
-        outPri0PauseFrames,
-        outPri1PauseFrames,
-        outPri2PauseFrames,
-        outPri3PauseFrames,
-        outPri4PauseFrames,
-        outPri5PauseFrames,
-        outPri6PauseFrames,
-        outPri7PauseFrames,
-        singleCollisionFrames,
-        sQETTestErrors,
-        status,
-        symbolErrors)
+    if ($interfaceReport){$global:interfaceReportOutput += ($interfaceStats.imdata.ethpmPhysIf)}
+    if ($errorReport){
+        $global:errorReportOutput += ($interfaceStats.imdata.rmonDot3Stats | select-object `
+            @{name='Switch';Expression={$currentInterfaceObj.switch}},
+            @{name='Module';Expression={$currentInterfaceObj.module}},
+            @{name='Port';Expression={$currentInterfaceObj.port}},
+            alignmentErrors,
+            carrierSenseErrors,
+            childAction,
+            clearTs,
+            controlInUnknownOpcodes,
+            deferredTransmissions,
+            excessiveCollisions,
+            fCSErrors,
+            frameTooLongs,
+            inLlfcFrames,
+            inPauseFrames,
+            inPri0PauseFrames,
+            inPri1PauseFrames,
+            inPri2PauseFrames,
+            inPri3PauseFrames,
+            inPri4PauseFrames,
+            inPri5PauseFrames,
+            inPri6PauseFrames,
+            inPri7PauseFrames,
+            inStandardPauseFrames,
+            internalMacReceiveErrors,
+            internalMacTransmitErrors,
+            lateCollisions,
+            modTs,
+            multipleCollisionFrames,
+            outLlfcFrames,
+            outPauseFrames,
+            outPri0PauseFrames,
+            outPri1PauseFrames,
+            outPri2PauseFrames,
+            outPri3PauseFrames,
+            outPri4PauseFrames,
+            outPri5PauseFrames,
+            outPri6PauseFrames,
+            outPri7PauseFrames,
+            singleCollisionFrames,
+            sQETTestErrors,
+            status,
+            symbolErrors)
+    }    
 }
 
 function getCookie{
