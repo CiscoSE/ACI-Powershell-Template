@@ -38,23 +38,34 @@ For authentication such as LDAP or TACACs, include the domain here. You cannot p
 All post functions require the failsafe switch in order to execute. Be default changes to the APIC are not allowed. 
 This capability is included to ensure that if the script is run accidently, no changes will be made.
 
-Failsafe does not prevent a cookie from being obtained because 
+Failsafe does not prevent a cookie from being obtained because
+
+.PARAMETER errorReport
+Produces a TSV formated report of interface errors for all interfaces in the fabric.
+
+.PARAMETER interfaceReport
+Procuces a TSV formated report of all interfaces in the fabric.
 
 .EXAMPLE 
-This example will return a list of switches from 1.1.1.1 using the admin user and password. Verbose output will include the password provide.
+This example will return a list of interfaces from all leaf and spine switches from 1.1.1.1 using the admin user and password. Verbose output will include the password provide.
 
-.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword' -verbose
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword' -interfaceReport -verbose
 
 .EXAMPLE
-This example will return a list of switches from 1.1.1.1 without detailed output from the script.
+This example will return a list of interface errors from 1.1.1.1 without detailed output from the script.
 
-.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword'
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword' -errorReport
 
 .EXAMPLE
 This example uses a domain reference to support remote authentication (LDAP or TACACs as examples) to the APIC.
 The password in this case is requested seperately and is not passed as an argument. 
 
-.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain -interfaceReport
+
+.EXAMPLE
+Produces both the interface report and the error report in TSV format from apic 1.1.1.1
+
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain -interfaceReport -errorReport
 
 #>
 [cmdletbinding(SupportsShouldProcess=$true)]
@@ -125,7 +136,7 @@ function getInterfaces{
     param(
         $currentSwitch
     )
-
+    $interfaceListResult = @()
     $listOfInterfaces = New-Object 'System.Collections.Generic.List[PSObject]'
     [xml]$interfaceList = (getData -urlPath "/api/node/mo/$($currentSwitch.dn)/sys.xml?query-target=children" -type Get).Content
     $interfaceList.imdata.l1PhysIf.dn | ForEach-Object {
@@ -137,9 +148,9 @@ function getInterfaces{
         $listOfInterfaces += $thisInterface
     }
     $listOfInterfaces | sort-object "Switch",Module,Port | ForEach-Object{
-        getInterfaceStats -currentInterfaceObj $_
+        $interfaceListResult += (getInterfaceStats -currentInterfaceObj $_)
     }
-        
+    $interfaceListResult | format-table -AutoSize    
 }
 
 function getInterfaceStats {
@@ -150,6 +161,17 @@ function getInterfaceStats {
     $interfaceRequest= "/api/node/mo/$($_.dn).xml?query-target=children"
     write-verbose "`t$($interfaceRequest)"
     [xml]$interfaceStats = (getData -urlPath "$($interfaceRequest)" -type Get ).content
+    $returnList = $InterfaceStats.imdata | Select-Object `
+        @{Name="Switch";   Expression={$currentInterfaceObj.switch}},
+        @{Name="Interface";Expression={($currentInterfaceObj.dn -split("phys-"))[1] -replace("\[|\]",'')}},
+        @{Name="OperationalState";Expression={$_.ethpmPhysIf.operSt}},
+        @{Name="OperationalSpeed";Expression={$_.ethpmPhysIf.operSpeed}},
+        @{Name="Usage";Expression={$_.ethpmPhysIf.usage}},
+        @{Name="CRCerrors";Expression={$_.rmonEtherStats.cRCAlignErrors}},
+        @{Name="DropEvents";Expression={$_.rmonEtherStats.dropEvents}},
+        @{Name="Collisions";Expression={$_.rmonEtherStats.collisions}},
+        @{Name="UnderSizedPackets";Expression={$_.rmonEtherStats.undersizePkts}},
+        @{Name="fragments";Expression={$_.rmonEtherStats.fragments}}
     if ($interfaceReport){$global:interfaceReportOutput += ($interfaceStats.imdata.ethpmPhysIf)}
     if ($errorReport){
         $global:errorReportOutput += ($interfaceStats.imdata.rmonDot3Stats | select-object `
@@ -195,7 +217,8 @@ function getInterfaceStats {
             sQETTestErrors,
             status,
             symbolErrors)
-    }    
+    } 
+    return $returnList   
 }
 
 function getCookie{
