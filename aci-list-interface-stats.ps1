@@ -40,11 +40,14 @@ This capability is included to ensure that if the script is run accidently, no c
 
 Failsafe does not prevent a cookie from being obtained because
 
-.PARAMETER errorReport
+.PARAMETER rmonErrorReport
 Produces a TSV formated report of interface errors for all interfaces in the fabric.
 
 .PARAMETER interfaceReport
 Procuces a TSV formated report of all interfaces in the fabric.
+
+.PARAMETER ethernetStatsReport
+Produces a TSV formated report of the ethernet statistics for each interface in the fabric
 
 .EXAMPLE 
 This example will return a list of interfaces from all leaf and spine switches from 1.1.1.1 using the admin user and password. Verbose output will include the password provide.
@@ -54,7 +57,7 @@ This example will return a list of interfaces from all leaf and spine switches f
 .EXAMPLE
 This example will return a list of interface errors from 1.1.1.1 without detailed output from the script.
 
-.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword' -errorReport
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user admin -password 'SomePassword' -rmonErrorReport
 
 .EXAMPLE
 This example uses a domain reference to support remote authentication (LDAP or TACACs as examples) to the APIC.
@@ -63,9 +66,9 @@ The password in this case is requested seperately and is not passed as an argume
 .\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain -interfaceReport
 
 .EXAMPLE
-Produces both the interface report and the error report in TSV format from apic 1.1.1.1
+Produces both the interface report and the ethernet statistics in TSV format for from apic 1.1.1.1
 
-.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain -interfaceReport -errorReport
+.\aci-list-interface-stats.ps1 -apic 1.1.1.1 -user SomeUser -domain SomeDomain -interfaceReport -ethernetStatsReport
 
 #>
 [cmdletbinding(SupportsShouldProcess=$true)]
@@ -76,11 +79,14 @@ param(
     [parameter(mandatory=$false)] [string]$password = (Read-Host -Prompt "Enter Password for $user" -MaskInput:$true),
     [parameter(mandatory=$false)][string]$domain='',
     [parameter(mandatory=$false)][string]$reportDirectory="Reports/",
-    [parameter(mandatory=$false)][string]$tsvErrorReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-error-report.tsv",
+    [parameter(mandatory=$false)][string]$tsvrmonErrorReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-rmonError-report.tsv",
     [parameter(mandatory=$false)][string]$tsvInterfaceReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-interface-report.tsv",
+    [parameter(mandatory=$false)][string]$tsvEthernetStatsReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-EthernetStats-report.tsv",
     [parameter(mandatory=$false)][switch]$failsafe,
-    [parameter(mandatory=$false)][switch]$errorReport,
-    [parameter(mandatory=$false)][switch]$interfaceReport
+    [parameter(mandatory=$false)][switch]$rmonErrorReport,
+    [parameter(mandatory=$false)][switch]$interfaceReport,
+    [parameter(mandatory=$false)][switch]$ethernetStatsReport
+
 )
 # We change this at the top to make it obvious what is happening. We cannot pass a secure string to the script from an 
 # argument, so we immidiately convert a string to a secure string to improve protection of the password during run time.
@@ -89,8 +95,9 @@ param(
 # We use this to authenticate once a cookie is obtained. By making it global we can use it anywhere. 
 $global:cookie = ''
 
-$global:errorReportOutput = @()
+$global:rmonErrorReportOutput = @()
 $global:interfaceReportOutput = @()
+$global:ethernetStatsReportOutput = @()
 
 function main {
     Param()
@@ -104,8 +111,10 @@ function main {
     }
     # Call function to return a list of 
     getAllLeafSwitches
-    if ($global:errorReportOutput -ne '') {$global:errorReportOutput |     ConvertTo-Csv -Delimiter "`t" | out-file $tsvErrorReportPath -force}
-    if ($global:interfaceReportOutput -ne '') {$global:interfaceReportOutput | ConvertTo-Csv -Delimiter "`t" | Out-File $tsvInterfaceReportPath -force}
+    #Send generated reports to file as TSV files
+    if ($global:rmonErrorReportOutput -ne '')     {$global:rmonErrorReportOutput     | ConvertTo-Csv -Delimiter "`t" | out-file $tsvrmonErrorReportPath     -force}
+    if ($global:interfaceReportOutput -ne '')     {$global:interfaceReportOutput     | ConvertTo-Csv -Delimiter "`t" | Out-File $tsvInterfaceReportPath     -force}
+    if ($global:ethernetStatsReportOutput -ne '') {$global:ethernetStatsReportOutput | ConvertTo-Csv -Delimiter "`t" | Out-File $tsvEthernetStatsReportPath -force}
 }
 
 function reportDirectoryCheck {
@@ -172,9 +181,36 @@ function getInterfaceStats {
         @{Name="Collisions";Expression={$_.rmonEtherStats.collisions}},
         @{Name="UnderSizedPackets";Expression={$_.rmonEtherStats.undersizePkts}},
         @{Name="fragments";Expression={$_.rmonEtherStats.fragments}}
+    if ($ethernetStatsReport){$global:ethernetStatsReportOutput += ($interfaceStats.imdata.rmonEtherStats | Select-Object `
+        @{name='Switch';Expression={$currentInterfaceObj.switch}},
+        @{Name="Interface";Expression={($currentInterfaceObj.dn -split("phys-"))[1] -replace("\[|\]",'')}},
+        broadcastPkts,
+        cRCAlignErrors,
+        collisions,
+        dropEvents,
+        fragments,
+        jabbers,
+        multicastPkts,
+        octets,
+        oversizePkts,
+        pkts,
+        pkts1024to1518Octets,
+        pkts128to255Octets,
+        pkts256to511Octets,
+        pkts512to1023Octets,
+        pkts64Octets,
+        pkts65to127Octets,
+        rXNoErrors,
+        rxGiantPkts,
+        rxOversizePkts,
+        tXNoErrors,
+        txGiantPkts,
+        txOversizePkts,
+        undersizePkts
+        )}
     if ($interfaceReport){$global:interfaceReportOutput += ($interfaceStats.imdata.ethpmPhysIf)}
-    if ($errorReport){
-        $global:errorReportOutput += ($interfaceStats.imdata.rmonDot3Stats | select-object `
+    if ($rmonErrorReport){
+        $global:rmonErrorReportOutput += ($interfaceStats.imdata.rmonDot3Stats | select-object `
             @{name='Switch';Expression={$currentInterfaceObj.switch}},
             @{name='Module';Expression={$currentInterfaceObj.module}},
             @{name='Port';Expression={$currentInterfaceObj.port}},
