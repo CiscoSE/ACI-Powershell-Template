@@ -76,7 +76,7 @@ Produces both the interface report and the ethernet statistics in TSV format for
 param(
     [parameter(mandatory=$true)] [string]$apic,
     [parameter(mandatory=$false)][string]$user='admin',   #If nothing is entered, admin is assumed
-    [parameter(mandatory=$false)] [string]$password = (Read-Host -Prompt "Enter Password for $user" -MaskInput:$true),
+    [parameter(mandatory=$false)][string]$password = '',
     [parameter(mandatory=$false)][string]$domain='',
     [parameter(mandatory=$false)][string]$reportDirectory="Reports/",
     [parameter(mandatory=$false)][string]$tsvrmonErrorReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-rmonError-report.tsv",
@@ -90,7 +90,12 @@ param(
 )
 # We change this at the top to make it obvious what is happening. We cannot pass a secure string to the script from an 
 # argument, so we immidiately convert a string to a secure string to improve protection of the password during run time.
-[securestring]$password = ($password | ConvertTo-SecureString -AsPlainText -force)
+if ($password -eq ''){
+    [securestring]$password = Read-Host -Prompt "Enter Password for $user" -AsSecureString 
+}
+else{
+    [securestring]$password = ($password | ConvertTo-SecureString -AsPlainText -force)
+}
 
 # We use this to authenticate once a cookie is obtained. By making it global we can use it anywhere. 
 $global:cookie = ''
