@@ -76,7 +76,11 @@ Produces both the interface report and the ethernet statistics in TSV format for
 param(
     [parameter(mandatory=$true)] [string]$apic,
     [parameter(mandatory=$false)][string]$user='admin',   #If nothing is entered, admin is assumed
+<<<<<<< HEAD
     [parameter(mandatory=$false)][string]$password = '',
+=======
+    [parameter(mandatory=$false)] [string]$password = (Read-Host -Prompt "Enter Password for $user"),
+>>>>>>> cb2a1ed55bd69e77d85878dd993e789cd77b4985
     [parameter(mandatory=$false)][string]$domain='',
     [parameter(mandatory=$false)][string]$reportDirectory="Reports/",
     [parameter(mandatory=$false)][string]$tsvrmonErrorReportPath = "$($reportDirectory)$(get-date -format "yyyyMMdd-HHmmss")-rmonError-report.tsv",
