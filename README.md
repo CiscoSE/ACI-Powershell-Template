@@ -15,3 +15,6 @@ This example is intended as a framework and doesn't produce much output from the
 **aci-list-switches.ps1**
 
 Intended as the simplest example of requesting data and returning it to the screen, this example lists all of the switches in the fabric. 
+
+**aci-list-interface-stats.ps1**
+Provides more advanced examples by list interfaces with options for different error reports. 
