@@ -62,12 +62,21 @@ The password in this case is requested seperately and is not passed as an argume
 param(
     [parameter(mandatory=$true)] [string]$apic,
     [parameter(mandatory=$false)][string]$user='admin',   #If nothing is entered, admin is assumed
-    [parameter(mandatory=$true)][SecureString]$password = (Read-Host -Prompt "Enter Password for $user" -AsSecureString ),
+    [parameter(mandatory=$false)][string]$password = '',
     [parameter(mandatory=$false)][string]$domain='',
     [parameter(mandatory=$false)][switch]$failsafe
 )
 
+#Variable used for the cookie through out the rest of this script.
 $global:cookie = ''
+
+# Critical handling of secure password
+if ($password -eq ''){
+    [securestring]$password = Read-Host -Prompt "Enter Password for $user" -AsSecureString 
+}
+else{
+    [securestring]$password = ($password | ConvertTo-SecureString -AsPlainText -force)
+}
 
 function main {
     Param()
